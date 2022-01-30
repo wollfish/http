@@ -124,34 +124,35 @@ public class CAPHttpPlugin: CAPPlugin {
     
     var fullFormData: Data?
     do {
-      fullFormData = try generateFullMultipartRequestBody(fileUrl, name, boundary, strings)
+      fullFormData = try generateFullMultipartRequestBody([name: fileUrl], boundary, strings)
     } catch let e {
       return call.reject("Unable to read file to upload", "UPLOAD", e)
     }
 
-
+    let headers = (call.getObject("headers") ?? [:]) as [String:String]
+    setRequestHeaders(&request, headers)
     request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-    
+
     let task = URLSession.shared.uploadTask(with: request, from: fullFormData) { (data, response, error) in
       if error != nil {
         CAPLog.print("Error on upload file", data, response, error)
         call.reject("Error", "UPLOAD", error, [:])
         return
       }
-      
+
       // let res = response as! HTTPURLResponse
-      
+
       //CAPLog.print("Uploaded file", location)
         let res = response as! HTTPURLResponse
-       
+
         call.resolve(self.buildResponse(data, res))
     }
-    
+
     task.resume()
   }
-  
+
   @objc public func setCookie(_ call: CAPPluginCall) {
-  
+
     guard let key = call.getString("key") else {
       return call.reject("Must provide key")
     }
@@ -163,7 +164,7 @@ public class CAPHttpPlugin: CAPPlugin {
     }
     let expires = call.getString("expires")
     let ageDays = call.getInt("ageDays")
-    
+
     var cookieExpiration = ""
     if expires != nil {
         cookieExpiration = "; Expires=" + expires!.replacingOccurrences(of: "Expires=", with: "", options:.caseInsensitive)
@@ -171,47 +172,47 @@ public class CAPHttpPlugin: CAPPlugin {
         let maxAge = ageDays! * 24 * 60 * 60;
         cookieExpiration = "; Max-Age=\(maxAge)"
     }
-    
+
     guard let url = URL(string: urlString) else {
       return call.reject("Invalid URL")
     }
-    
+
     let jar = HTTPCookieStorage.shared
     let field = ["Set-Cookie": "\(key)=\(value)\(cookieExpiration)"]
     let cookies = HTTPCookie.cookies(withResponseHeaderFields: field, for: url)
     jar.setCookies(cookies, for: url, mainDocumentURL: url)
-    
+
     call.resolve()
   }
-  
+
   @objc public func getCookies(_ call: CAPPluginCall) {
     guard let urlString = call.getString("url") else {
       return call.reject("Must provide URL")
     }
-    
+
     guard let url = URL(string: urlString) else {
       return call.reject("Invalid URL")
     }
-    
+
     let jar = HTTPCookieStorage.shared
     guard let cookies = jar.cookies(for: url) else {
       return call.resolve([
         "value": []
       ])
     }
-    
+
     let c = cookies.map { (cookie: HTTPCookie) -> [String:String] in
       return [
         "key": cookie.name,
         "value": cookie.value
       ]
     }
-    
+
     call.resolve([
       "value": c
     ])
   }
-  
+
   @objc public func deleteCookie(_ call: CAPPluginCall) {
     guard let urlString = call.getString("url") else {
       return call.reject("Must provide URL")
@@ -222,19 +223,19 @@ public class CAPHttpPlugin: CAPPlugin {
     guard let url = URL(string: urlString) else {
       return call.reject("Invalid URL")
     }
-    
+
     let jar = HTTPCookieStorage.shared
-    
+
     let cookie = jar.cookies(for: url)?.first(where: { (cookie) -> Bool in
       return cookie.name == key
     })
     if cookie != nil {
       jar.deleteCookie(cookie!)
     }
-    
+
     call.resolve()
   }
-  
+
   @objc public func clearCookies(_ call: CAPPluginCall) {
     guard let urlString = call.getString("url") else {
       return call.reject("Must provide URL")
@@ -249,17 +250,17 @@ public class CAPHttpPlugin: CAPPlugin {
     call.resolve()
   }
 
-  
+
   /* PRIVATE */
-  
+
   // Handle GET operations
   func get(_ call: CAPPluginCall, _ url: inout URL, _ method: String, _ headers: [String:String], _ params: [String:String]) {
     setUrlQuery(&url, params)
-    
+
     var request = URLRequest(url: url)
-    
+
     request.httpMethod = method
-    
+
     setRequestHeaders(&request, headers)
 
     let task = URLSession.shared.dataTask(with: request) { (data, response, error) in
@@ -267,15 +268,15 @@ public class CAPHttpPlugin: CAPPlugin {
         call.reject("Error", "GET", error, [:])
         return
       }
-      
+
       let res = response as! HTTPURLResponse
-     
+
       call.resolve(self.buildResponse(data, res))
     }
-    
+
     task.resume()
   }
-  
+
   func setUrlQuery(_ url: inout URL, _ params: [String:String]) {
     if (params.count != 0) {
         var cmps = URLComponents(url: url, resolvingAgainstBaseURL: true)
@@ -288,7 +289,7 @@ public class CAPHttpPlugin: CAPPlugin {
         url = cmps!.url!
     }
   }
-  
+
   func setRequestHeaders(_ request: inout URLRequest, _ headers: [String:String]) {
     headers.keys.forEach { (key) in
       guard let value = headers[key] else {
@@ -297,21 +298,21 @@ public class CAPHttpPlugin: CAPPlugin {
       request.addValue(value, forHTTPHeaderField: key)
     }
   }
-  
+
   // Handle mutation operations: DELETE, PATCH, POST, and PUT
   func mutate(_ call: CAPPluginCall, _ url: URL, _ method: String, _ headers: [String:String]) {
     let data = call.getObject("data")
-    
+
     var request = URLRequest(url: url)
     request.httpMethod = method
-  
+
     setRequestHeaders(&request, headers)
-    
+
     let contentType = getRequestHeader(headers, "Content-Type") as? String
-    
+
     if data != nil && contentType != nil {
       do {
-        request.httpBody = try getRequestData(request, data!, contentType!)
+        request.httpBody = try getRequestData(&request, data!, contentType!)
       } catch let e {
         call.reject("Unable to set request data", "MUTATE", e)
         return
@@ -323,23 +324,23 @@ public class CAPHttpPlugin: CAPPlugin {
         call.reject("Error", "MUTATE", error, [:])
         return
       }
-      
+
       let res = response as! HTTPURLResponse
-     
+
       call.resolve(self.buildResponse(data, res))
     }
-    
+
     task.resume()
   }
 
   func buildResponse(_ data: Data?, _ response: HTTPURLResponse) -> [String:Any] {
-    
+
     var ret = [:] as [String:Any]
-    
+
     ret["status"] = response.statusCode
     ret["headers"] = response.allHeaderFields
     ret["url"] = response.url?.absoluteString
-    
+
     let contentType = response.allHeaderFields["Content-Type"] as? String
 
     if data != nil && contentType != nil && contentType!.contains("application/json") {
@@ -353,10 +354,10 @@ public class CAPHttpPlugin: CAPPlugin {
         ret["data"] = ""
       }
     }
-    
+
     return ret
   }
-  
+
   func getRequestHeader(_ headers: [String:Any], _ header: String) -> Any? {
     var normalizedHeaders = [:] as [String:Any]
     headers.keys.forEach { (key) in
@@ -364,23 +365,37 @@ public class CAPHttpPlugin: CAPPlugin {
     }
     return normalizedHeaders[header.lowercased()]
   }
-  
-  func getRequestData(_ request: URLRequest, _ data: [String:Any], _ contentType: String) throws -> Data? {
+
+  func getRequestData(_ request: inout URLRequest, _ data: [String:Any], _ contentType: String) throws -> Data? {
     if contentType.contains("application/json") {
       return try setRequestDataJson(request, data)
     } else if contentType.contains("application/x-www-form-urlencoded") {
       return setRequestDataFormUrlEncoded(request, data)
     } else if contentType.contains("multipart/form-data") {
-      return setRequestDataMultipartFormData(request, data)
+      let boundary = UUID().uuidString
+      var fileReferences = [:] as [String:URL]
+      var dataReferences = [:] as [String:String]
+        
+      request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+      data.keys.forEach { key in
+          if let value = data[key] as? String, value.starts(with: "capacitor://") {
+              fileReferences[key] = URL(string: value.replacingOccurrences(of: "^.*capacitor_file_", with: "file://", options: .regularExpression))
+          } else if let value = data[key] as? String, value.starts(with: "file://") {
+              fileReferences[key] = URL(string: value)
+          } else if let value = data[key] as? String {
+            dataReferences[key] = value
+          }
+      }
+      return try generateFullMultipartRequestBody(fileReferences, boundary, dataReferences)
     }
     return nil
   }
-  
+
   func setRequestDataJson(_ request: URLRequest, _ data: [String:Any]) throws -> Data? {
     let jsonData = try JSONSerialization.data(withJSONObject: data)
     return jsonData
   }
-  
+
   func setRequestDataFormUrlEncoded(_ request: URLRequest, _ data: [String:Any]) -> Data? {
     guard var components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false) else {
       return nil
@@ -393,34 +408,30 @@ public class CAPHttpPlugin: CAPPlugin {
     if components.query != nil {
       return Data(components.query!.utf8)
     }
-    
-    return nil
-  }
-  
-  func setRequestDataMultipartFormData(_ request: URLRequest, _ data: [String:Any]) -> Data? {
-    return nil
-  }
-  
-  
-    func generateFullMultipartRequestBody(_ url: URL, _ name: String, _ boundary: String, _ strings: [String:String]) throws -> Data {
-    var data = Data()
-    
-    let fileData = try Data(contentsOf: url)
 
-    
-    let fname = url.lastPathComponent
-    let mimeType = FilesystemUtils.mimeTypeForPath(path: fname)
-    data.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
-    data.append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(fname)\"\r\n".data(using: .utf8)!)
-    data.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
-    data.append(fileData)
+    return nil
+  }
+
+  func generateFullMultipartRequestBody(_ files: [String:URL], _ boundary: String, _ strings: [String:String]) throws -> Data {
+    var data = Data()
+    try files.forEach { name, url in
+      let fileData = try Data(contentsOf: url)
+      let fname = url.lastPathComponent
+      let mimeType = FilesystemUtils.mimeTypeForPath(path: fname)
+
+      data.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
+      data.append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(fname)\"\r\n".data(using: .utf8)!)
+      data.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+      data.append(fileData)
+    }
+
     strings.forEach { key, value in
-        data.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
-        data.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
-        data.append(value.data(using: .utf8)!)
+      data.append("\r\n--\(boundary)\r\n".data(using: .utf8)!)
+      data.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
+      data.append(value.data(using: .utf8)!)
     }
     data.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-    
+
     return data
   }
 }
