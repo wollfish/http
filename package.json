@@ -1,5 +1,5 @@
 {
-  "name": "@capacitor-wollfish/http",
+  "name": "capacitor-wollfish-http",
   "version": "0.3.2",
   "description": "A native HTTP plugin for CORS-free requests and file transfers",
   "main": "dist/esm/index.js",
@@ -12,7 +12,7 @@
     "prettier": "prettier \"**/*.{css,html,ts,js,java}\"",
     "prepublishOnly": "npm run build"
   },
-  "author": "Max Lynch <max@ionic.io>",
+  "author": "Wollfish Labs Private Limited",
   "license": "MIT",
   "dependencies": {
     "@capacitor/core": "2.4.7"
